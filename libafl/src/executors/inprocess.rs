@@ -29,7 +29,6 @@ use crate::bolts::os::windows_exceptions::setup_exception_handler;
 use windows::Win32::System::Threading::SetThreadStackGuarantee;
 
 use crate::{
-    corpus::Corpus,
     events::{EventFirer, EventRestarter},
     executors::{Executor, ExitKind, HasObservers},
     feedbacks::Feedback,
@@ -109,7 +108,7 @@ where
     /// * `harness_fn` - the harness, executiong the function
     /// * `observers` - the observers observing the target during execution
     /// This may return an error on unix, if signal handler setup fails
-    pub fn new<EM, OC, OF, Z>(
+    pub fn new<EM, OF, Z>(
         harness_fn: &'a mut H,
         observers: OT,
         _fuzzer: &mut Z,
@@ -118,12 +117,11 @@ where
     ) -> Result<Self, Error>
     where
         EM: EventFirer<I> + EventRestarter<S>,
-        OC: Corpus<I>,
         OF: Feedback<I, S>,
-        S: HasSolutions<OC, I> + HasClientPerfMonitor,
+        S: HasSolutions<I> + HasClientPerfMonitor,
         Z: HasObjective<I, OF, S>,
     {
-        let handlers = InProcessHandlers::new::<Self, EM, I, OC, OF, OT, S, Z>()?;
+        let handlers = InProcessHandlers::new::<Self, EM, I, OF, OT, S, Z>()?;
         #[cfg(windows)]
         unsafe {
             /*
@@ -249,15 +247,14 @@ impl InProcessHandlers {
     }
 
     /// Create new [`InProcessHandlers`].
-    pub fn new<E, EM, I, OC, OF, OT, S, Z>() -> Result<Self, Error>
+    pub fn new<E, EM, I, OF, OT, S, Z>() -> Result<Self, Error>
     where
         I: Input,
         E: HasObservers<I, OT, S>,
         OT: ObserversTuple<I, S>,
         EM: EventFirer<I> + EventRestarter<S>,
-        OC: Corpus<I>,
         OF: Feedback<I, S>,
-        S: HasSolutions<OC, I> + HasClientPerfMonitor,
+        S: HasSolutions<I> + HasClientPerfMonitor,
         Z: HasObjective<I, OF, S>,
     {
         #[cfg(unix)]
@@ -267,18 +264,10 @@ impl InProcessHandlers {
             compiler_fence(Ordering::SeqCst);
 
             Ok(Self {
-                crash_handler: unix_signal_handler::inproc_crash_handler::<E, EM, I, OC, OF, OT, S, Z>
+                crash_handler: unix_signal_handler::inproc_crash_handler::<E, EM, I, OF, OT, S, Z>
                     as *const _,
-                timeout_handler: unix_signal_handler::inproc_timeout_handler::<
-                    E,
-                    EM,
-                    I,
-                    OC,
-                    OF,
-                    OT,
-                    S,
-                    Z,
-                > as *const _,
+                timeout_handler: unix_signal_handler::inproc_timeout_handler::<E, EM, I, OF, OT, S, Z>
+                    as *const _,
             })
         }
         #[cfg(all(windows, feature = "std"))]
@@ -292,7 +281,6 @@ impl InProcessHandlers {
                     E,
                     EM,
                     I,
-                    OC,
                     OF,
                     OT,
                     S,
@@ -302,7 +290,6 @@ impl InProcessHandlers {
                     E,
                     EM,
                     I,
-                    OC,
                     OF,
                     OT,
                     S,
@@ -475,7 +462,7 @@ mod unix_signal_handler {
     }
 
     #[cfg(unix)]
-    pub unsafe fn inproc_timeout_handler<E, EM, I, OC, OF, OT, S, Z>(
+    pub unsafe fn inproc_timeout_handler<E, EM, I, OF, OT, S, Z>(
         _signal: Signal,
         _info: siginfo_t,
         _context: &mut ucontext_t,
@@ -484,9 +471,8 @@ mod unix_signal_handler {
         E: HasObservers<I, OT, S>,
         EM: EventFirer<I> + EventRestarter<S>,
         OT: ObserversTuple<I, S>,
-        OC: Corpus<I>,
         OF: Feedback<I, S>,
-        S: HasSolutions<OC, I> + HasClientPerfMonitor,
+        S: HasSolutions<I> + HasClientPerfMonitor,
         I: Input,
         Z: HasObjective<I, OF, S>,
     {
@@ -553,7 +539,7 @@ mod unix_signal_handler {
     /// Will be used for signal handling.
     /// It will store the current State to shmem, then exit.
     #[allow(clippy::too_many_lines)]
-    pub unsafe fn inproc_crash_handler<E, EM, I, OC, OF, OT, S, Z>(
+    pub unsafe fn inproc_crash_handler<E, EM, I, OF, OT, S, Z>(
         signal: Signal,
         _info: siginfo_t,
         _context: &mut ucontext_t,
@@ -562,9 +548,8 @@ mod unix_signal_handler {
         E: HasObservers<I, OT, S>,
         EM: EventFirer<I> + EventRestarter<S>,
         OT: ObserversTuple<I, S>,
-        OC: Corpus<I>,
         OF: Feedback<I, S>,
-        S: HasSolutions<OC, I> + HasClientPerfMonitor,
+        S: HasSolutions<I> + HasClientPerfMonitor,
         I: Input,
         Z: HasObjective<I, OF, S>,
     {
@@ -730,7 +715,7 @@ mod windows_exception_handler {
         EnterCriticalSection, LeaveCriticalSection, RTL_CRITICAL_SECTION,
     };
 
-    pub unsafe extern "system" fn inproc_timeout_handler<E, EM, I, OC, OF, OT, S, Z>(
+    pub unsafe extern "system" fn inproc_timeout_handler<E, EM, I, OF, OT, S, Z>(
         _p0: *mut u8,
         global_state: *mut c_void,
         _p1: *mut u8,
@@ -738,9 +723,8 @@ mod windows_exception_handler {
         E: HasObservers<I, OT, S>,
         EM: EventFirer<I> + EventRestarter<S>,
         OT: ObserversTuple<I, S>,
-        OC: Corpus<I>,
         OF: Feedback<I, S>,
-        S: HasSolutions<OC, I> + HasClientPerfMonitor,
+        S: HasSolutions<I> + HasClientPerfMonitor,
         I: Input,
         Z: HasObjective<I, OF, S>,
     {
@@ -829,16 +813,15 @@ mod windows_exception_handler {
         // println!("TIMER INVOKED!");
     }
 
-    pub unsafe fn inproc_crash_handler<E, EM, I, OC, OF, OT, S, Z>(
+    pub unsafe fn inproc_crash_handler<E, EM, I, OF, OT, S, Z>(
         exception_pointers: *mut EXCEPTION_POINTERS,
         data: &mut InProcessExecutorHandlerData,
     ) where
         E: HasObservers<I, OT, S>,
         EM: EventFirer<I> + EventRestarter<S>,
         OT: ObserversTuple<I, S>,
-        OC: Corpus<I>,
         OF: Feedback<I, S>,
-        S: HasSolutions<OC, I> + HasClientPerfMonitor,
+        S: HasSolutions<I> + HasClientPerfMonitor,
         I: Input,
         Z: HasObjective<I, OF, S>,
     {
@@ -1052,7 +1035,7 @@ where
     SP: ShMemProvider,
 {
     /// Creates a new [`InProcessForkExecutor`]
-    pub fn new<EM, OC, OF, Z>(
+    pub fn new<EM, OF, Z>(
         harness_fn: &'a mut H,
         observers: OT,
         _fuzzer: &mut Z,
@@ -1062,9 +1045,8 @@ where
     ) -> Result<Self, Error>
     where
         EM: EventFirer<I> + EventRestarter<S>,
-        OC: Corpus<I>,
         OF: Feedback<I, S>,
-        S: HasSolutions<OC, I> + HasClientPerfMonitor,
+        S: HasSolutions<I> + HasClientPerfMonitor,
         Z: HasObjective<I, OF, S>,
     {
         Ok(Self {
